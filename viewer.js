@@ -140,40 +140,73 @@ function buildPageRecord(n, page) {
 
 /* ============================ 渲染 ============================ */
 
+/**
+ * 分两步，保证滚轮连打时既跟手又不并发写同一 canvas：
+ *   relayout() 同步更新所有几何尺寸与坐标标定（立刻可测、布局正确）
+ *   repaint()  异步重画位图与刻度尺，连续请求会被合并成最后一次
+ */
+let rendering = false;
+let repaintQueued = false;
+
 async function redrawAll() {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  relayout();
+  await repaint();
+}
+
+/** 纯几何：算出每页 pt 尺寸与 px/pt 标定，并同步布局（不做像素渲染） */
+function relayout() {
+  const rot = ((state.rotation % 360) + 360) % 360;
+  const swap = rot === 90 || rot === 270;
 
   for (const rec of pages.values()) {
-    // 1) pt 尺寸：来自 PDF 用户空间，考虑视图旋转导致的宽高互换
+    // 1) pt 尺寸：来自 PDF 用户空间，旋转会交换宽高
     const v1 = rec.page.getViewport({ scale: 1, rotation: state.rotation });
     const view = rec.page.view || [0, 0, v1.width, v1.height];
     const rawW = Math.abs(view[2] - view[0]);
     const rawH = Math.abs(view[3] - view[1]);
-    const rot = ((state.rotation % 360) + 360) % 360;
-    const swap = rot === 90 || rot === 270;
     rec.wPt = swap ? rawH : rawW;
     rec.hPt = swap ? rawW : rawH;
     rec.baseK = rec.wPt > 0 ? v1.width / rec.wPt : 1;
 
-    // 2) 当前显示尺寸
+    // 2) 当前显示尺寸与标定：k = 渲染像素宽 / pt 宽
     const viewport = rec.page.getViewport({ scale: state.scale, rotation: state.rotation });
     rec.viewport = viewport;
     rec.k = rec.wPt > 0 ? viewport.width / rec.wPt : 1;
 
-    rec.canvas.width = Math.max(1, Math.floor(viewport.width * dpr));
-    rec.canvas.height = Math.max(1, Math.floor(viewport.height * dpr));
     rec.canvas.style.width = viewport.width + 'px';
     rec.canvas.style.height = viewport.height + 'px';
-    rec.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    await rec.page.render({ canvasContext: rec.ctx, viewport }).promise;
+    rec.ruler.style.width = viewport.width + 'px';
+    rec.ruler.style.height = viewport.height + 'px';
 
-    drawRuler(rec, dpr);
     positionOriginDot(rec);
     repaintPins(rec);
   }
 
   els.zoomValue.textContent = Math.round(state.scale * 100) + '%';
   updatePageMeta();
+}
+
+/** 位图渲染：缩放过渡期间画面会被 CSS 短暂拉伸，渲染完自动恢复清晰 */
+async function repaint() {
+  if (rendering) { repaintQueued = true; return; }
+  rendering = true;
+  try {
+    do {
+      repaintQueued = false;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      for (const rec of pages.values()) {
+        const vp = rec.viewport;
+        if (!vp) continue;
+        rec.canvas.width = Math.max(1, Math.floor(vp.width * dpr));
+        rec.canvas.height = Math.max(1, Math.floor(vp.height * dpr));
+        rec.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        await rec.page.render({ canvasContext: rec.ctx, viewport: vp }).promise;
+        drawRuler(rec, dpr);
+      }
+    } while (repaintQueued);
+  } finally {
+    rendering = false;
+  }
 }
 
 function positionOriginDot(rec) {
@@ -269,6 +302,18 @@ function bindPointer() {
   els.scrollArea.addEventListener('mouseleave', () => { state.mouse = null; setActive(null); renderReadout(); });
   els.viewport.addEventListener('click', onPageClick);
   document.addEventListener('keydown', onKey);
+  bindZoomWheel();
+}
+
+/* Ctrl + 滚轮 / 触摸板捏合 -> 组件内缩放（阻止浏览器整页缩放） */
+function bindZoomWheel() {
+  const PER_MODE = [0.0018, 0.05, 0.6]; // 像素 / 行 / 页
+  window.addEventListener('wheel', (e) => {
+    if (!e.ctrlKey || !state.doc) return; // 未打开文档时保留浏览器默认行为
+    e.preventDefault(); // 必须在非 passive 监听里调用，才能挡掉浏览器整页缩放
+    const per = PER_MODE[e.deltaMode] != null ? PER_MODE[e.deltaMode] : PER_MODE[0];
+    zoomAt(Math.exp(-e.deltaY * per), e.clientX, e.clientY);
+  }, { passive: false });
 }
 
 function onMouseMove(e) {
@@ -446,7 +491,59 @@ function bindUI() {
 async function setZoom(s) {
   state.scale = Math.max(0.2, Math.min(8, s));
   savePref('scale', state.scale);
-  await redrawAll();
+  relayout();
+  await repaint();
+}
+
+/**
+ * 以屏幕某个锚点为中心缩放：先同步重排并标定坐标，再把文档偏移校正回去，
+ * 保证缩放前后鼠标指向的 PDF 位置不动；位图随后异步重画。
+ */
+async function zoomAt(factor, anchorX, anchorY) {
+  const target = Math.max(0.2, Math.min(8, state.scale * factor));
+  if (Math.abs(target - state.scale) < 1e-4) return;
+
+  const area = els.scrollArea;
+  const rect = area.getBoundingClientRect();
+  const ax = (anchorX == null ? rect.left + rect.width / 2 : anchorX) - rect.left;
+  const ay = (anchorY == null ? rect.top + rect.height / 2 : anchorY) - rect.top;
+  const beforeDocX = area.scrollLeft + ax;
+  const beforeDocY = area.scrollTop + ay;
+  const ratio = target / state.scale;
+
+  state.scale = target;
+  savePref('scale', target);
+  relayout();
+
+  void area.scrollHeight; // 强制同步 reflow，否则下面赋的滚动位置会被旧布局吞掉
+  area.scrollLeft = beforeDocX * ratio - ax;
+  area.scrollTop = beforeDocY * ratio - ay;
+
+  const hit = hitAt(anchorX, anchorY);
+  if (hit) {
+    const p = pointFrom(hit.rec, hit.cssX, hit.cssY);
+    state.mouse = p;
+    setActive(hit, p);
+  } else {
+    state.mouse = null;
+    setActive(null);
+  }
+  renderReadout();
+
+  repaint();
+}
+
+/** 用屏幕坐标重新命中页面（缩放后刷新读数用） */
+function hitAt(clientX, clientY) {
+  if (clientX == null) return null;
+  for (const cand of pages.values()) {
+    if (!cand.viewport) continue;
+    const r = cand.canvas.getBoundingClientRect();
+    if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
+      return { rec: cand, gh: cand.gh, gv: cand.gv, cssX: clientX - r.left, cssY: clientY - r.top };
+    }
+  }
+  return null;
 }
 
 async function fitWidth() {
