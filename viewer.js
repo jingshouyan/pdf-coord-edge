@@ -90,6 +90,10 @@ async function mount(doc, name) {
   state.mouse = null;
   state.pins = [];
   activeRec = null;
+  renderGen++; // 作废上一个文档的在途渲染
+  state.geomRot = null; // 新文档需重算页面 pt 尺寸
+  clearTimeout(repaintTimer);
+  repaintAgain = false;
   els.pageCount.textContent = '/ ' + doc.numPages;
   els.pageNum.max = String(doc.numPages);
   els.viewport.innerHTML = '';
@@ -109,7 +113,7 @@ async function mount(doc, name) {
 
 function buildPageRecord(n, page) {
   const host = document.createElement('div');
-  host.className = 'page-host';
+  host.className = 'page-host pending';
   host.dataset.page = String(n);
 
   const canvas = document.createElement('canvas');
@@ -132,43 +136,61 @@ function buildPageRecord(n, page) {
 
   return {
     n, page, host, canvas, ruler, originDot, label, gh, gv,
-    ctx: canvas.getContext('2d', { alpha: false }),
+    // alpha 必须为 true：false 时未绘制区域是不透明黑，缩放/首屏会闪黑
+    ctx: canvas.getContext('2d', { alpha: true }),
     rctx: ruler.getContext('2d'),
-    k: 1, baseK: 1, wPt: 0, hPt: 0, viewport: null
+    k: 1, baseK: 1, wPt: 0, hPt: 0, viewport: null,
+    rendered: false, renderSeq: 0, stale: false, dpr: 1
   };
 }
+
+/* 单页位图边长上限：超过则降 DPR 渲染，避免显存/内存抖动 */
+const MAX_CANVAS_SIDE = 6000;
 
 /* ============================ 渲染 ============================ */
 
 /**
- * 分两步，保证滚轮连打时既跟手又不并发写同一 canvas：
- *   relayout() 同步更新所有几何尺寸与坐标标定（立刻可测、布局正确）
- *   repaint()  异步重画位图与刻度尺，连续请求会被合并成最后一次
+ * 缩放为什么要分两段：
+ *   relayout()  —— 同步，只改几何。位图尺寸保持不变，靠 CSS 拉伸旧画面，
+ *                   所以滚轮期间画面立刻跟着变大变小，既不黑也不重画，坐标读数依旧准确。
+ *   renderPage() —— 异步，滚轮停下后只重画视口附近的页面；先在离屏画布画好，
+ *                   再同帧替换到位图画布，避免"清空后等待渲染"的黑/白中间态。
  */
-let rendering = false;
-let repaintQueued = false;
+let repaintTimer = null;
+let repaintBusy = false;
+let repaintAgain = false;
+let renderGen = 0; // 换文档时递增，用于作废在途渲染
 
 async function redrawAll() {
   relayout();
-  await repaint();
+  clearTimeout(repaintTimer); // relayout 已调度，避免紧接着重复渲染一轮
+  await runRepaint();
 }
 
-/** 纯几何：算出每页 pt 尺寸与 px/pt 标定，并同步布局（不做像素渲染） */
+/**
+ * 纯几何：更新 px/pt 标定与 CSS 布局（不触碰位图）。
+ * 这是滚轮热路径，故页面 pt 尺寸按旋转缓存，只在旋转变化时重算。
+ */
 function relayout() {
   const rot = ((state.rotation % 360) + 360) % 360;
   const swap = rot === 90 || rot === 270;
+  const geomDirty = state.geomRot !== rot;
+  if (geomDirty) state.geomRot = rot;
 
   for (const rec of pages.values()) {
-    // 1) pt 尺寸：来自 PDF 用户空间，旋转会交换宽高
-    const v1 = rec.page.getViewport({ scale: 1, rotation: state.rotation });
-    const view = rec.page.view || [0, 0, v1.width, v1.height];
-    const rawW = Math.abs(view[2] - view[0]);
-    const rawH = Math.abs(view[3] - view[1]);
-    rec.wPt = swap ? rawH : rawW;
-    rec.hPt = swap ? rawW : rawH;
-    rec.baseK = rec.wPt > 0 ? v1.width / rec.wPt : 1;
+    // 1) pt 尺寸：来自 PDF 用户空间，与缩放无关，仅随旋转变化 -> 缓存
+    if (geomDirty || !rec.cachedPt) {
+      const v1 = rec.page.getViewport({ scale: 1, rotation: state.rotation });
+      const view = rec.page.view || [0, 0, v1.width, v1.height];
+      const rawW = Math.abs(view[2] - view[0]);
+      const rawH = Math.abs(view[3] - view[1]);
+      rec.wPt = swap ? rawH : rawW;
+      rec.hPt = swap ? rawW : rawH;
+      rec.baseK = rec.wPt > 0 ? v1.width / rec.wPt : 1;
+      rec.cachedPt = true;
+    }
 
-    // 2) 当前显示尺寸与标定：k = 渲染像素宽 / pt 宽
+    // 2) 显示尺寸与标定：k 基于 CSS 像素，与位图分辨率无关，故读数不受 dpr 影响
     const viewport = rec.page.getViewport({ scale: state.scale, rotation: state.rotation });
     rec.viewport = viewport;
     rec.k = rec.wPt > 0 ? viewport.width / rec.wPt : 1;
@@ -179,33 +201,106 @@ function relayout() {
     rec.ruler.style.height = viewport.height + 'px';
 
     positionOriginDot(rec);
-    repaintPins(rec);
+    if (state.pins.length) repaintPins(rec);
+    rec.stale = true; // 位图与新的显示尺寸不再匹配，待重画
   }
 
   els.zoomValue.textContent = Math.round(state.scale * 100) + '%';
   updatePageMeta();
+  scheduleRepaint();
 }
 
-/** 位图渲染：缩放过渡期间画面会被 CSS 短暂拉伸，渲染完自动恢复清晰 */
-async function repaint() {
-  if (rendering) { repaintQueued = true; return; }
-  rendering = true;
+/** 视口内（含上下 margin 屏预取）的页码集合 */
+function visiblePageSet(margin) {
+  const rect = els.scrollArea.getBoundingClientRect();
+  const pad = rect.height * (margin == null ? 1 : margin);
+  const top = rect.top - pad;
+  const bot = rect.bottom + pad;
+  const set = new Set();
+  for (const rec of pages.values()) {
+    const r = rec.canvas.getBoundingClientRect();
+    if (r.bottom >= top && r.top <= bot) set.add(rec.n);
+  }
+  if (!set.size) set.add(state.curPage || 1);
+  return set;
+}
+
+function scheduleRepaint(delay) {
+  clearTimeout(repaintTimer);
+  repaintTimer = setTimeout(runRepaint, delay == null ? 140 : delay);
+}
+
+/** 只重画视口附近的页面，串行进行，避免与 pdf.js worker 抢资源 */
+async function runRepaint() {
+  if (repaintBusy) { repaintAgain = true; return; }
+  repaintBusy = true;
+  const gen = renderGen;
   try {
     do {
-      repaintQueued = false;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      repaintAgain = false;
+      const vis = visiblePageSet(1);
       for (const rec of pages.values()) {
-        const vp = rec.viewport;
-        if (!vp) continue;
-        rec.canvas.width = Math.max(1, Math.floor(vp.width * dpr));
-        rec.canvas.height = Math.max(1, Math.floor(vp.height * dpr));
-        rec.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        await rec.page.render({ canvasContext: rec.ctx, viewport: vp }).promise;
-        drawRuler(rec, dpr);
+        if (gen !== renderGen) return;
+        if (!vis.has(rec.n) || !rec.viewport) continue;
+        if (rec.rendered && !rec.stale) continue;
+        await renderPage(rec);
+        if (rec.rendered) rec.stale = false;
       }
-    } while (repaintQueued);
+    } while (repaintAgain && gen === renderGen);
   } finally {
-    rendering = false;
+    repaintBusy = false;
+  }
+}
+
+/** 该页位图用的设备像素比：位图边长超上限时自动降采样，防止显存抖动 */
+function pickDpr(rec) {
+  const base = Math.min(window.devicePixelRatio || 1, 2);
+  const w = rec.viewport.width, h = rec.viewport.height;
+  const cap = MAX_CANVAS_SIDE / Math.max(w, h, 1);
+  return Math.max(0.5, Math.min(base, cap));
+}
+
+async function renderPage(rec) {
+  if (!rec.viewport) return false;
+  const seq = ++rec.renderSeq;
+  const gen = renderGen;
+  const dpr = pickDpr(rec);
+  const bw = Math.max(1, Math.floor(rec.viewport.width * dpr));
+  const bh = Math.max(1, Math.floor(rec.viewport.height * dpr));
+
+  // 离屏渲染：可见画布在渲染完成前保持上一帧画面，不会出现空白中间态
+  const back = document.createElement('canvas');
+  back.width = bw;
+  back.height = bh;
+  const bctx = back.getContext('2d');
+  bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  try {
+    await rec.page.render({ canvasContext: bctx, viewport: rec.viewport }).promise;
+  } catch (e) {
+    back.width = back.height = 0;
+    return false;
+  }
+  if (seq !== rec.renderSeq || gen !== renderGen) { back.width = back.height = 0; return false; }
+
+  // 同帧替换：改尺寸会清空画布，但紧接着 drawImage，浏览器不会绘制中间状态
+  rec.dpr = dpr;
+  rec.canvas.width = bw;
+  rec.canvas.height = bh;
+  rec.ctx.setTransform(1, 0, 0, 1, 0, 0);
+  rec.ctx.clearRect(0, 0, bw, bh);
+  rec.ctx.drawImage(back, 0, 0);
+  back.width = back.height = 0; // 释放大画布
+
+  rec.rendered = true;
+  rec.host.classList.remove('pending');
+  drawRuler(rec, dpr);
+  return true;
+}
+
+/** 只重画刻度尺（切换原点、开关刻度尺时无需重渲染 PDF） */
+function repaintRulers() {
+  for (const rec of pages.values()) {
+    if (rec.viewport && rec.rendered) drawRuler(rec, rec.dpr || Math.min(window.devicePixelRatio || 1, 2));
   }
 }
 
@@ -219,6 +314,14 @@ function positionOriginDot(rec) {
 /* 刻度尺：10pt 一小格，50pt 标数值 */
 function drawRuler(rec, dpr) {
   const w = rec.viewport.width, h = rec.viewport.height;
+
+  // 未开启刻度尺时直接隐藏，避免为每页分配一张与页面等大的画布
+  if (!els.rulerChk.checked) {
+    rec.ruler.style.display = 'none';
+    if (rec.ruler.width !== 1 || rec.ruler.height !== 1) { rec.ruler.width = 1; rec.ruler.height = 1; }
+    return;
+  }
+  rec.ruler.style.display = '';
   rec.ruler.width = Math.max(1, Math.floor(w * dpr));
   rec.ruler.height = Math.max(1, Math.floor(h * dpr));
   rec.ruler.style.width = w + 'px';
@@ -227,7 +330,6 @@ function drawRuler(rec, dpr) {
   const c = rec.rctx;
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, w, h);
-  if (!els.rulerChk.checked) return;
 
   c.strokeStyle = 'rgba(22,120,74,.6)';
   c.fillStyle = 'rgba(14,74,46,.9)';
@@ -298,26 +400,29 @@ function locate(e) {
 /* ============================ 鼠标交互 ============================ */
 
 function bindPointer() {
-  document.addEventListener('mousemove', onMouseMove);
+  document.addEventListener('mousemove', onMouseMove, { passive: true });
   els.scrollArea.addEventListener('mouseleave', () => { state.mouse = null; setActive(null); renderReadout(); });
   els.viewport.addEventListener('click', onPageClick);
   document.addEventListener('keydown', onKey);
   bindZoomWheel();
 }
 
-/* Ctrl + 滚轮 / 触摸板捏合 -> 组件内缩放（阻止浏览器整页缩放） */
-function bindZoomWheel() {
-  const PER_MODE = [0.0018, 0.05, 0.6]; // 像素 / 行 / 页
-  window.addEventListener('wheel', (e) => {
-    if (!e.ctrlKey || !state.doc) return; // 未打开文档时保留浏览器默认行为
-    e.preventDefault(); // 必须在非 passive 监听里调用，才能挡掉浏览器整页缩放
-    const per = PER_MODE[e.deltaMode] != null ? PER_MODE[e.deltaMode] : PER_MODE[0];
-    zoomAt(Math.exp(-e.deltaY * per), e.clientX, e.clientY);
-  }, { passive: false });
+/* mousemove 按帧节流：高分屏事件可达 120Hz+，逐帧重建 DOM 会造成明显掉帧 */
+let pendingMove = null;
+let moveRaf = 0;
+function onMouseMove(e) {
+  pendingMove = { x: e.clientX, y: e.clientY };
+  if (moveRaf) return;
+  moveRaf = requestAnimationFrame(() => {
+    moveRaf = 0;
+    const pt = pendingMove;
+    pendingMove = null;
+    if (pt) applyMove(pt.x, pt.y);
+  });
 }
 
-function onMouseMove(e) {
-  const hit = locate(e);
+function applyMove(clientX, clientY) {
+  const hit = locateAt(clientX, clientY);
   if (!hit) {
     if (state.mouse) { state.mouse = null; setActive(null); renderReadout(); }
     els.cursorTag.style.display = 'none';
@@ -332,7 +437,37 @@ function onMouseMove(e) {
     updatePageMeta();
   }
   renderReadout();
-  moveTag(e.clientX, e.clientY, p);
+  moveTag(clientX, clientY, p);
+}
+
+/** 命中测试：先查当前页（多数情况），再回退遍历 */
+function locateAt(clientX, clientY) { return hitAt(clientX, clientY); }
+
+/* Ctrl + 滚轮 / 触摸板捏合 -> 组件内缩放（阻止浏览器整页缩放） */
+function bindZoomWheel() {
+  const PER_MODE = [0.0018, 0.05, 0.6]; // 像素 / 行 / 页
+  window.addEventListener('wheel', (e) => {
+    if (!e.ctrlKey || !state.doc) return; // 未打开文档时保留浏览器默认行为
+    e.preventDefault(); // 必须在非 passive 监听里调用，才能挡掉浏览器整页缩放
+    const per = PER_MODE[e.deltaMode] != null ? PER_MODE[e.deltaMode] : PER_MODE[0];
+    queueZoom(Math.exp(-e.deltaY * per), e.clientX, e.clientY);
+  }, { passive: false });
+}
+
+/* 滚轮事件每秒可达数十次，逐次重排全部页面会掉帧 -> 合并到每帧一次 */
+let zoomRaf = 0;
+let zoomFactor = 1;
+let zoomAnchor = [null, null];
+function queueZoom(factor, x, y) {
+  zoomFactor *= factor;
+  zoomAnchor = [x, y];
+  if (zoomRaf) return;
+  zoomRaf = requestAnimationFrame(() => {
+    zoomRaf = 0;
+    const f = zoomFactor, a = zoomAnchor;
+    zoomFactor = 1;
+    zoomAt(f, a[0], a[1]);
+  });
 }
 
 function setActive(hit, p) {
@@ -343,18 +478,19 @@ function setActive(hit, p) {
   if (activeRec && activeRec !== hit.rec) activeRec.host.classList.remove('active');
   activeRec = hit.rec;
   activeRec.host.classList.add('active');
-  activeRec.gh.style.top = hit.cssY + 'px';
-  activeRec.gv.style.left = hit.cssX + 'px';
+  activeRec.gh.style.transform = 'translateY(' + hit.cssY + 'px)';
+  activeRec.gv.style.transform = 'translateX(' + hit.cssX + 'px)';
 }
 
 function moveTag(cx, cy, p) {
   const t = els.cursorTag;
+  const html = 'X <em>' + fmt(p.xPt) + '</em> · Y <em>' + fmt(p.yPt) + '</em> ' + UNIT_LABEL[state.unit];
+  if (html !== t.dataset.txt) { t.innerHTML = html; t.dataset.txt = html; }
   t.style.display = 'block';
-  t.style.left = (cx + 16) + 'px';
-  t.style.top = (cy + 18) + 'px';
-  t.innerHTML = 'X <em>' + fmt(p.xPt) + '</em> · Y <em>' + fmt(p.yPt) + '</em> ' + UNIT_LABEL[state.unit];
-  if (cx + 16 + t.offsetWidth > window.innerWidth - 6) t.style.left = (cx - t.offsetWidth - 12) + 'px';
-  if (cy + 18 + t.offsetHeight > window.innerHeight - 6) t.style.top = (cy - t.offsetHeight - 12) + 'px';
+  let x = cx + 16, y = cy + 18;
+  if (x + t.offsetWidth > window.innerWidth - 6) x = cx - t.offsetWidth - 12;
+  if (y + t.offsetHeight > window.innerHeight - 6) y = cy - t.offsetHeight - 12;
+  t.style.transform = 'translate(' + x + 'px,' + y + 'px)';
 }
 
 function onPageClick(e) {
@@ -396,18 +532,41 @@ function fmt(ptVal) {
   return (v < 0 ? '-' : '') + s;
 }
 
+/* 状态栏使用常驻节点，只更新文本，避免每帧重建 DOM 造成整条状态栏重排 */
+let ro = null;
+function ensureReadoutDom() {
+  if (ro) return ro;
+  const mk = (cls, txt) => { const s = document.createElement('span'); s.className = cls; if (txt) s.textContent = txt; return s; };
+  const page = mk('ro-page');
+  const xw = mk('ro-coord'); const xi = document.createElement('i'); const xu = document.createTextNode('');
+  xw.append(document.createTextNode('X '), xi, xu);
+  const yw = mk('ro-coord'); const yi = document.createElement('i'); const yu = document.createTextNode('');
+  yw.append(document.createTextNode('Y '), yi, yu);
+  const hintEl = mk('ro-hint', '鼠标移到页面上读数，单击打点');
+  els.readout.append(page, xw, yw, hintEl);
+  ro = { page, xi, xu, yi, yu, hintEl, unit: null, shown: false };
+  return ro;
+}
+
 function renderReadout() {
+  const r = ensureReadoutDom();
   const u = UNIT_LABEL[state.unit];
-  if (!state.mouse) {
-    els.readout.innerHTML = '<span class="ro-page">第 ' + (state.curPage || '-') + ' 页</span>' +
-      '<span class="ro-coord">X <i>—</i> ' + u + '</span>' +
-      '<span class="ro-coord">Y <i>—</i> ' + u + '</span>' +
-      '<span class="ro-hint">鼠标移到页面上读数，单击打点</span>';
-  } else {
-    els.readout.innerHTML = '<span class="ro-page">第 ' + state.mouse.page + ' 页</span>' +
-      '<span class="ro-coord">X <i>' + fmt(state.mouse.xPt) + '</i> ' + u + '</span>' +
-      '<span class="ro-coord">Y <i>' + fmt(state.mouse.yPt) + '</i> ' + u + '</span>';
+  if (r.unit !== u) {
+    r.xu.textContent = ' ' + u;
+    r.yu.textContent = ' ' + u;
+    r.unit = u;
   }
+  const has = !!state.mouse;
+  r.page.textContent = '第 ' + (has ? state.mouse.page : (state.curPage || '-')) + ' 页';
+  r.xi.textContent = has ? fmt(state.mouse.xPt) : '—';
+  r.yi.textContent = has ? fmt(state.mouse.yPt) : '—';
+  if (has === r.shown) { r.hintEl.style.display = has ? 'none' : ''; r.shown = has; }
+  else { r.hintEl.style.display = has ? 'none' : ''; r.shown = has; }
+
+  // 测距栏只随打点/单位变化，不必每帧重建
+  const sig = state.pins.length + '|' + state.unit + '|' + state.decimals;
+  if (sig === els.deltaBox.dataset.sig) return;
+  els.deltaBox.dataset.sig = sig;
 
   const n = state.pins.length;
   if (n >= 2) {
@@ -434,8 +593,10 @@ function updatePageMeta() {
   if (!rec || !rec.wPt) { els.pagePt.textContent = ''; return; }
   const u = UNIT_LABEL[state.unit];
   const conv = (v) => (v / PT_PER[state.unit]).toFixed(state.decimals);
-  els.pagePt.innerHTML = '第 ' + rec.n + ' 页尺寸 <b>' + conv(rec.wPt) + ' × ' + conv(rec.hPt) + ' ' + u +
+  // 缩放时每帧都会调用，标定值又连续变化 -> 用签名避免无谓的 innerHTML 重排
+  const html = '第 ' + rec.n + ' 页尺寸 <b>' + conv(rec.wPt) + ' × ' + conv(rec.hPt) + ' ' + u +
     '</b> &nbsp;·&nbsp; 原点：' + originLabel() + ' &nbsp;·&nbsp; 标定 ' + rec.k.toFixed(3) + ' px/pt';
+  if (html !== els.pagePt.dataset.sig) { els.pagePt.innerHTML = html; els.pagePt.dataset.sig = html; }
 }
 
 function originLabel() {
@@ -466,9 +627,14 @@ function bindUI() {
   els.zoomOut.addEventListener('click', () => setZoom(state.scale / 1.2));
   els.fitWidth.addEventListener('click', fitWidth);
 
-  els.originSel.addEventListener('change', async () => {
+  els.originSel.addEventListener('change', () => {
     state.origin = els.originSel.value; savePref('origin', state.origin);
-    for (const rec of pages.values()) { if (!rec.viewport) continue; positionOriginDot(rec); drawRuler(rec, Math.min(window.devicePixelRatio || 1, 2)); repaintPins(rec); }
+    for (const rec of pages.values()) {
+      if (!rec.viewport) continue;
+      positionOriginDot(rec);
+      if (rec.rendered) drawRuler(rec, rec.dpr);
+      repaintPins(rec);
+    }
     updatePageMeta(); renderReadout();
   });
   els.unitSel.addEventListener('change', () => { state.unit = els.unitSel.value; savePref('unit', state.unit); renderReadout(); updatePageMeta(); });
@@ -478,21 +644,21 @@ function bindUI() {
     hint('重新渲染中…'); await redrawAll(); hint(null);
   });
   els.crossChk.addEventListener('change', () => { savePref('cross', els.crossChk.checked); setActive(null); });
-  els.rulerChk.addEventListener('change', async () => {
+  els.rulerChk.addEventListener('change', () => {
     savePref('ruler', els.rulerChk.checked);
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    for (const rec of pages.values()) if (rec.viewport) drawRuler(rec, dpr);
+    repaintRulers();
   });
   els.resetPin.addEventListener('click', () => { state.pins = []; for (const r of pages.values()) repaintPins(r); renderReadout(); });
 
-  window.addEventListener('resize', debounce(() => { if (activeRec) setActive(null); }, 200));
+  // 窗口尺寸或 DPI 变化后位图需要重画
+  window.addEventListener('resize', debounce(() => { setActive(null); scheduleRepaint(0); }, 200));
 }
 
 async function setZoom(s) {
   state.scale = Math.max(0.2, Math.min(8, s));
   savePref('scale', state.scale);
   relayout();
-  await repaint();
+  await runRepaint();
 }
 
 /**
@@ -529,15 +695,15 @@ async function zoomAt(factor, anchorX, anchorY) {
     setActive(null);
   }
   renderReadout();
-
-  repaint();
+  // 位图重画由 relayout() 统一延后调度：滚轮期间只靠 CSS 拉伸，停下后才渲染清晰画面
 }
 
-/** 用屏幕坐标重新命中页面（缩放后刷新读数用） */
+/** 用屏幕坐标重新命中页面（缩放后刷新读数用）；优先命中当前页，避免遍历全文档 */
 function hitAt(clientX, clientY) {
   if (clientX == null) return null;
-  for (const cand of pages.values()) {
-    if (!cand.viewport) continue;
+  const order = activeRec ? [activeRec, ...pages.values()] : pages.values();
+  for (const cand of order) {
+    if (!cand || !cand.viewport) continue;
     const r = cand.canvas.getBoundingClientRect();
     if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
       return { rec: cand, gh: cand.gh, gv: cand.gv, cssX: clientX - r.left, cssY: clientY - r.top };
@@ -578,6 +744,7 @@ function observePages() {
       els.pageNum.value = String(n);
       updatePageMeta();
     }
+    scheduleRepaint(60); // 新进入视口的页面及时换成清晰位图
   }, { root: els.scrollArea, threshold: [0.25, 0.5, 0.75] });
   for (const rec of pages.values()) io.observe(rec.host);
 }

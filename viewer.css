@@ -83,7 +83,7 @@ select {
 .delta { color: var(--muted); }
 .delta b { color: var(--hot); font-weight: 600; }
 .spacer { flex: 1 1 auto; }
-.readout { display: flex; align-items: baseline; gap: 14px; font-variant-numeric: tabular-nums; }
+.readout { display: flex; align-items: baseline; gap: 14px; font-variant-numeric: tabular-nums; min-width: 230px; }
 .ro-page { color: var(--muted); }
 .ro-coord i { font-style: normal; font-weight: 700; color: var(--accent); font-size: 15px; }
 .ro-coord { color: var(--muted); }
@@ -99,10 +99,22 @@ main {
   flex: 1 1 auto;
   overflow: auto;
   padding: 22px 0 60px;
+  overscroll-behavior: contain; /* 缩放到边界时不把滚动/缩放手势传给浏览器 */
 }
 #viewport { display: flex; flex-direction: column; align-items: center; gap: 22px; width: 100%; }
 
-.page-host { position: relative; background: #fff; box-shadow: 0 2px 14px rgba(0, 0, 0, .5); }
+.page-host {
+  position: relative; background: #fff; box-shadow: 0 2px 14px rgba(0, 0, 0, .5);
+  /* 仅 layout 包含：缩放改尺寸时缩小重排范围，同时不裁切越界的页码标签 */
+  contain: layout;
+}
+/* 位图尚未出图时的占位，避免露出黑色底 */
+.page-host.pending .page-canvas { background: #fbfbfc; }
+.page-host.pending::after {
+  content: "渲染中"; position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 12px; color: #9aa2b1; letter-spacing: 1px;
+}
 .page-canvas { display: block; }
 .page-label {
   position: absolute; top: -20px; left: 0;
@@ -122,10 +134,10 @@ main {
 .origin-mark .axis-x { left: 0; top: -0.5px; width: 26px; height: 1px; }
 .origin-mark .axis-y { left: -0.5px; top: -26px; width: 1px; height: 26px; }
 
-/* 十字线 */
-.guide { position: absolute; pointer-events: none; z-index: 3; display: none; }
-.guide-h { left: 0; width: 100%; height: 1px; background: rgba(255, 77, 79, .75); }
-.guide-v { top: 0; height: 100%; width: 1px; background: rgba(255, 77, 79, .75); }
+/* 十字线：用 transform 定位，鼠标移动只走合成层，不触发重排 */
+.guide { position: absolute; pointer-events: none; z-index: 3; display: none; will-change: transform; }
+.guide-h { left: 0; top: 0; width: 100%; height: 1px; background: rgba(255, 77, 79, .75); }
+.guide-v { left: 0; top: 0; width: 1px; height: 100%; background: rgba(255, 77, 79, .75); }
 .page-host.active .guide { display: block; }
 
 /* 刻度尺 */
@@ -145,7 +157,8 @@ main {
 
 /* 跟随鼠标的浮层读数 */
 .cursor-tag {
-  position: fixed; z-index: 20; pointer-events: none;
+  position: fixed; left: 0; top: 0; z-index: 20; pointer-events: none;
+  will-change: transform;
   padding: 3px 7px; font-size: 12px; font-variant-numeric: tabular-nums;
   color: #fff; background: rgba(0, 0, 0, .8);
   border: 1px solid rgba(255, 255, 255, .18); border-radius: 4px;
