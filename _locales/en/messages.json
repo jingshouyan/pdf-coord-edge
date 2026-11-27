@@ -1,0 +1,17 @@
+{
+  "extensionName": {
+    "message": "PDF Coordinate Viewer (origin: bottom-left, pt)"
+  },
+  "extensionDescription": {
+    "message": "Shows live mouse coordinates in pt with each page's bottom-left corner as origin (0,0) when a PDF is opened in Edge. Includes pin-to-measure distance, rulers and unit switching."
+  },
+  "shortDescription": {
+    "message": "Live pt coordinates from each page's bottom-left corner"
+  },
+  "tileSubtitle": {
+    "message": "Bottom-left origin · live pt readout"
+  },
+  "contextMenuOpen": {
+    "message": "Open in PDF Coordinate Viewer"
+  }
+}

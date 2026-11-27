@@ -1,0 +1,20 @@
+{
+  "extensionName": {
+    "message": "PDF 坐标查看器（左下角原点 pt）"
+  },
+  "extensionDescription": {
+    "message": "在 Edge 中打开 PDF 时，以每页左下角为原点 (0,0) 实时显示鼠标坐标，单位为 pt，支持打点测距与刻度尺。"
+  },
+  "shortDescription": {
+    "message": "以页面左下角为原点，实时显示鼠标 pt 坐标"
+  },
+  "tileTitle": {
+    "message": "PDF 坐标查看器"
+  },
+  "tileSubtitle": {
+    "message": "左下角原点 · 实时 pt 坐标"
+  },
+  "contextMenuOpen": {
+    "message": "用 PDF 坐标查看器打开"
+  }
+}
