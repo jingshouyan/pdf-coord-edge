@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>PDF 坐标查看器</title>
+<link rel="stylesheet" href="viewer.css">
+</head>
+<body data-mode="float">
+
+<header>
+  <div class="brand">PDF 坐标查看器 <span class="unit-badge">pt</span></div>
+
+  <div class="group">
+    <input type="file" id="fileInput" accept="application/pdf,.pdf" hidden>
+    <button id="openFile" class="btn">选择文件</button>
+  </div>
+
+  <div class="group nav">
+    <button id="prev" class="btn icon" title="上一页">‹</button>
+    <input type="number" id="pageNum" min="1" value="1">
+    <span id="pageCount" class="muted">/ 0</span>
+    <button id="next" class="btn icon" title="下一页">›</button>
+  </div>
+
+  <div class="group">
+    <button id="fitWidth" class="btn">适应宽度</button>
+    <button id="zoomOut" class="btn icon">−</button>
+    <span id="zoomValue" class="muted">150%</span>
+    <button id="zoomIn" class="btn icon">＋</button>
+  </div>
+
+  <div class="group field">
+    <label>原点
+      <select id="originSel">
+        <option value="bottomLeft" selected>左下角</option>
+        <option value="bottomRight">右下角</option>
+        <option value="topLeft">左上角</option>
+        <option value="topRight">右上角</option>
+      </select>
+    </label>
+    <label>单位
+      <select id="unitSel">
+        <option value="pt" selected>pt</option>
+        <option value="mm">mm</option>
+        <option value="cm">cm</option>
+        <option value="in">in</option>
+      </select>
+    </label>
+    <label>小数
+      <select id="decSel">
+        <option value="0">0 位</option>
+        <option value="1" selected>1 位</option>
+        <option value="2">2 位</option>
+        <option value="3">3 位</option>
+      </select>
+    </label>
+    <label>旋转
+      <select id="rotSel">
+        <option value="0" selected>0°</option>
+        <option value="90">90°</option>
+        <option value="180">180°</option>
+        <option value="270">270°</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="group">
+    <label class="chk"><input type="checkbox" id="crossChk" checked>十字线</label>
+    <label class="chk"><input type="checkbox" id="rulerChk">刻度尺</label>
+    <button id="resetPin" class="btn">清除标记</button>
+  </div>
+</header>
+
+<div class="statusbar">
+  <span id="pagePt" class="status"></span>
+  <span id="deltaBox" class="delta" style="display:none"></span>
+  <span class="spacer"></span>
+  <span id="readout" class="readout"></span>
+</div>
+
+<div id="banner" class="banner" style="display:none"></div>
+
+<main id="scrollArea">
+  <div id="viewport"></div>
+</main>
+
+<div id="cursorTag" class="cursor-tag" style="display:none"></div>
+
+<script src="lib/pdf.min.js"></script>
+<script src="viewer.js"></script>
+</body>
+</html>

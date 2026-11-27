@@ -1,0 +1,158 @@
+:root {
+  --bg: #1b1d21;
+  --bar: #24272d;
+  --bar2: #2c3039;
+  --line: #383d47;
+  --fg: #e6e8ec;
+  --muted: #9aa2b1;
+  --accent: #37a46b;
+  --accent-soft: rgba(55, 164, 107, .18);
+  --hot: #ff4d4f;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.5 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+body { display: flex; flex-direction: column; overflow: hidden; }
+
+/* ---------------- 工具栏 ---------------- */
+header {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 8px 12px;
+  background: var(--bar);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  font-weight: 600; margin-right: 4px;
+  max-width: 34vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.unit-badge {
+  display: inline-block; padding: 1px 6px; margin-left: 4px;
+  font-size: 11px; font-weight: 600; color: var(--accent);
+  background: var(--accent-soft); border-radius: 10px;
+}
+
+.group { display: flex; align-items: center; gap: 6px; }
+.field { gap: 10px; flex-wrap: wrap; }
+.field label { display: flex; align-items: center; gap: 4px; color: var(--muted); white-space: nowrap; }
+.chk { color: var(--muted); cursor: pointer; user-select: none; }
+
+.btn {
+  height: 26px; padding: 0 10px;
+  color: var(--fg); background: var(--bar2);
+  border: 1px solid var(--line); border-radius: 5px;
+  cursor: pointer; font-size: 12px; white-space: nowrap;
+}
+.btn:hover { border-color: var(--accent); color: #fff; }
+.btn.icon { width: 26px; padding: 0; font-size: 15px; line-height: 1; }
+
+input[type="number"] {
+  width: 52px; height: 26px; padding: 0 6px;
+  color: var(--fg); background: var(--bar2);
+  border: 1px solid var(--line); border-radius: 5px;
+}
+select {
+  height: 26px; padding: 0 4px;
+  color: var(--fg); background: var(--bar2);
+  border: 1px solid var(--line); border-radius: 5px;
+}
+.muted { color: var(--muted); }
+
+/* ---------------- 状态条 ---------------- */
+.statusbar {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: 14px;
+  padding: 6px 12px;
+  background: var(--bar2);
+  border-bottom: 1px solid var(--line);
+  min-height: 34px;
+}
+.status { color: var(--muted); }
+.delta { color: var(--muted); }
+.delta b { color: var(--hot); font-weight: 600; }
+.spacer { flex: 1 1 auto; }
+.readout { display: flex; align-items: baseline; gap: 14px; font-variant-numeric: tabular-nums; }
+.ro-page { color: var(--muted); }
+.ro-coord i { font-style: normal; font-weight: 700; color: var(--accent); font-size: 15px; }
+.ro-coord { color: var(--muted); }
+.ro-hint { color: var(--muted); font-size: 12px; }
+
+.banner {
+  flex: 0 0 auto; padding: 8px 12px;
+  background: #3a2f18; color: #ffd68a; border-bottom: 1px solid #5a4a24;
+}
+
+/* ---------------- 页面区 ---------------- */
+main {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 22px 0 60px;
+}
+#viewport { display: flex; flex-direction: column; align-items: center; gap: 22px; width: 100%; }
+
+.page-host { position: relative; background: #fff; box-shadow: 0 2px 14px rgba(0, 0, 0, .5); }
+.page-canvas { display: block; }
+.page-label {
+  position: absolute; top: -20px; left: 0;
+  font-size: 11px; color: var(--muted);
+}
+
+/* 原点标记 */
+.origin-mark {
+  position: absolute; width: 0; height: 0; pointer-events: none; z-index: 4;
+}
+.origin-mark b {
+  position: absolute; left: 5px; top: -16px;
+  padding: 1px 4px; font-size: 10px; font-weight: 600;
+  color: #fff; background: var(--hot); border-radius: 3px; white-space: nowrap;
+}
+.origin-mark .axis-x, .origin-mark .axis-y { position: absolute; background: var(--hot); }
+.origin-mark .axis-x { left: 0; top: -0.5px; width: 26px; height: 1px; }
+.origin-mark .axis-y { left: -0.5px; top: -26px; width: 1px; height: 26px; }
+
+/* 十字线 */
+.guide { position: absolute; pointer-events: none; z-index: 3; display: none; }
+.guide-h { left: 0; width: 100%; height: 1px; background: rgba(255, 77, 79, .75); }
+.guide-v { top: 0; height: 100%; width: 1px; background: rgba(255, 77, 79, .75); }
+.page-host.active .guide { display: block; }
+
+/* 刻度尺 */
+.ruler { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+
+/* 钉点 */
+.pin {
+  position: absolute; z-index: 5; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px;
+  border: 1.5px solid var(--hot); border-radius: 50%; background: rgba(255, 77, 79, .2);
+  pointer-events: none;
+}
+.pin span {
+  position: absolute; left: 9px; top: -7px;
+  font-size: 10px; color: #fff; background: rgba(0, 0, 0, .68);
+  padding: 1px 4px; border-radius: 3px; white-space: nowrap;
+}
+
+/* 跟随鼠标的浮层读数 */
+.cursor-tag {
+  position: fixed; z-index: 20; pointer-events: none;
+  padding: 3px 7px; font-size: 12px; font-variant-numeric: tabular-nums;
+  color: #fff; background: rgba(0, 0, 0, .8);
+  border: 1px solid rgba(255, 255, 255, .18); border-radius: 4px;
+  white-space: nowrap;
+}
+.cursor-tag em { font-style: normal; color: #7ee2ab; font-weight: 700; }
+
+body[data-mode="bar"] .cursor-tag { display: none !important; }
+body[data-mode="off"] .cursor-tag { display: none !important; }
+body[data-mode="off"] .statusbar { display: none; }
