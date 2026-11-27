@@ -1,0 +1,28 @@
+#!/bin/sh
+# 每次提交后自动把当前分支推送到 origin（含附注标签）。
+#
+# 启用方式（每台机器各执行一次，该配置不会随 clone 自动传播）：
+#   git config core.hooksPath .githooks
+# 临时跳过某次自动推送：
+#   GIT_SKIP_AUTOPUSH=1 git commit ...
+# 彻底关闭：
+#   git config --unset core.hooksPath
+#
+# 钩子失败不会让提交回滚，只提示手动补推，避免离线时卡住提交。
+
+[ -n "$GIT_SKIP_AUTOPUSH" ] && exit 0
+
+# 无网络/无凭据时快速失败，不把 commit 卡到默认超时
+export GIT_SSH_COMMAND="ssh -o ConnectTimeout=8 -o BatchMode=yes"
+
+if ! git remote get-url origin >/dev/null 2>&1; then
+  exit 0
+fi
+
+if git push --follow-tags origin HEAD >/dev/null 2>&1; then
+  echo "[post-commit] 已自动推送到 origin"
+else
+  echo "[post-commit] 自动推送失败（网络或认证问题），请稍后手动执行：git push origin HEAD" >&2
+fi
+
+exit 0
