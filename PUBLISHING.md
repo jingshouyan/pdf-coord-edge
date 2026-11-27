@@ -2,7 +2,7 @@
 
 已为本扩展准备好的东西：
 
-- 上传包：`publish/pdf-coordinate-viewer-1.2.1.zip`（15 个条目，manifest 在根）
+- 上传包：`publish/pdf-coordinate-viewer-1.2.2.zip`（15 个条目，manifest 在根）
 - 商店素材：`store-assets/store-logo-300.png`、`promo-small-440x280.png`、`promo-large-1400x560.png`
 - 包内图标：`icons/icon16|32|48|128.png`
 - 重新打包：改完代码后运行 `make-release.ps1`（会重打版本号同名 zip）
@@ -29,7 +29,7 @@ Edge 计划**不收取注册费**（Chrome Web Store 是 5 美元，Edge 免费�
 
 1. 合作伙伴中心 → 主页 → **Edge** 卡片 → 概述页
 2. 点 **＋ 创建新扩展**，输入扩展 ID 名称（内部管理用，不对用户显示）
-3. 把 `publish/pdf-coordinate-viewer-1.2.1.zip` 拖进 **拖动到此处 (.zip)**
+3. 把 `publish/pdf-coordinate-viewer-1.2.2.zip` 拖进 **拖动到此处 (.zip)**
 4. 校验通过后，左侧选 **扩展概述** → **程序包** → 查看解析出的名称/版本/权限 → **继续**
 
 > 打包注意：必须在文件夹**内部**选中文件压缩，manifest.json 要位于 zip 根目录；只支持 .zip。
@@ -163,7 +163,7 @@ Tip: to measure local PDFs directly, enable "Allow access to file URLs" on this 
 
 ## 后续更新版本
 
-1. 改 `manifest.json` 里的 `version`（如 `1.1.1`）
+1. 改 `manifest.json` 里的 `version`（如 `1.2.3`）
 2. 跑 `make-release.ps1` → 生成新 zip
 3. 合作伙伴中心 → 选中该扩展 → **程序包** → 上传新 zip → 保存并发布
 
