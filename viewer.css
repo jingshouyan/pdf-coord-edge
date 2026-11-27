@@ -103,6 +103,13 @@ main {
 }
 #viewport { display: flex; flex-direction: column; align-items: center; gap: 22px; width: 100%; }
 
+/* 左键拖拽平移：页面常态为可抓取手型，真正开始拖动后关闭文字选择 */
+.page-host { cursor: grab; }
+main.panning-active, main.panning-active .page-host {
+  cursor: grabbing;
+  user-select: none;
+}
+
 .page-host {
   position: relative; background: #fff; box-shadow: 0 2px 14px rgba(0, 0, 0, .5);
   /* 仅 layout 包含：缩放改尺寸时缩小重排范围，同时不裁切越界的页码标签 */
@@ -156,8 +163,7 @@ main {
 }
 
 /* 跟随鼠标的浮层读数 */
-.cursor-tag {
-  position: fixed; left: 0; top: 0; z-index: 20; pointer-events: none;
+.cursor-tag {  position: fixed; left: 0; top: 0; z-index: 20; pointer-events: none;
   will-change: transform;
   padding: 3px 7px; font-size: 12px; font-variant-numeric: tabular-nums;
   color: #fff; background: rgba(0, 0, 0, .8);

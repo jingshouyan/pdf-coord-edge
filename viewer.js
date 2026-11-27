@@ -405,12 +405,14 @@ function bindPointer() {
   els.viewport.addEventListener('click', onPageClick);
   document.addEventListener('keydown', onKey);
   bindZoomWheel();
+  bindPanDrag();
 }
 
 /* mousemove 按帧节流：高分屏事件可达 120Hz+，逐帧重建 DOM 会造成明显掉帧 */
 let pendingMove = null;
 let moveRaf = 0;
 function onMouseMove(e) {
+  if (pan && pan.moved) return; // 拖拽平移期间不更新读数，画面跟手即可
   pendingMove = { x: e.clientX, y: e.clientY };
   if (moveRaf) return;
   moveRaf = requestAnimationFrame(() => {
@@ -421,7 +423,8 @@ function onMouseMove(e) {
   });
 }
 
-function applyMove(clientX, clientY) {
+function applyMove(clientX, clientY, force) {
+  if (!force && pan && pan.moved) return; // 拖拽平移期间不更新读数
   const hit = locateAt(clientX, clientY);
   if (!hit) {
     if (state.mouse) { state.mouse = null; setActive(null); renderReadout(); }
@@ -442,6 +445,73 @@ function applyMove(clientX, clientY) {
 
 /** 命中测试：先查当前页（多数情况），再回退遍历 */
 function locateAt(clientX, clientY) { return hitAt(clientX, clientY); }
+
+/* ============================ 左键拖拽平移 ============================ */
+
+const PAN_THRESHOLD = 4; // px，超过该位移才认定为"拖动"，避免手抖误判为没点击
+
+let pan = null;        // { startX, startY, left0, top0, moved }
+let suppressClick = false; // 拖动结束时浏览器仍会派发 click，需忽略这一次
+
+function bindPanDrag() {
+  els.scrollArea.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;                                 // 只响应鼠标左键
+    if (!state.doc) return;                                     // 未打开文档时保留浏览器默认行为
+    if (e.target.closest('button, select, input, a')) return;   // 控件仍可正常点击
+    if (!locateAt(e.clientX, e.clientY)) return;                // 只在页面上拖拽，空白处不接管
+
+    pan = {
+      startX: e.clientX, startY: e.clientY,
+      left0: els.scrollArea.scrollLeft, top0: els.scrollArea.scrollTop,
+      moved: false
+    };
+    els.scrollArea.classList.add('panning');
+    // 不在 mousedown 里 preventDefault：否则浏览器不会派发 click，打点会失效。
+    // 拖动选中文字改由 .panning-active 的 user-select:none 抑制。
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!pan) return;
+    const dx = e.clientX - pan.startX;
+    const dy = e.clientY - pan.startY;
+    if (!pan.moved && Math.hypot(dx, dy) < PAN_THRESHOLD) return;
+    if (!pan.moved) {
+      pan.moved = true;
+      els.scrollArea.classList.add('panning-active');            // 由 CSS 关闭文字选择
+      state.mouse = null;
+      setActive(null);
+      els.cursorTag.style.display = 'none';                      // 拖动时收起浮层，画面跟手
+      renderReadout();
+    }
+
+    els.scrollArea.scrollLeft = pan.left0 - dx;
+    els.scrollArea.scrollTop = pan.top0 - dy;
+
+    // 位移已生效，按最新指针位置刷新读数（页面矩形随滚动变化，需重新命中）
+    const pt = pendingMove;
+    if (pt) {
+      if (moveRaf) { cancelAnimationFrame(moveRaf); moveRaf = 0; }
+      pendingMove = null;
+      applyMove(pt.x, pt.y, true);
+    }
+  }, { passive: true });
+
+  const end = (ev) => {
+    if (!pan) return;
+    suppressClick = pan.moved; // 拖动结束不要当成一次打点
+    const wasMoved = pan.moved;
+    const cx = ev && ev.clientX, cy = ev && ev.clientY;
+    pan = null;
+    els.scrollArea.classList.remove('panning', 'panning-active');
+    if (suppressClick) setTimeout(() => { suppressClick = false; }, 0);
+    if (wasMoved && ev && ev.type === 'mouseup' && typeof cx === 'number' && typeof cy === 'number') {
+      applyMove(cx, cy, true); // 松手即恢复该点读数
+    }
+  };
+  window.addEventListener('mouseup', end);
+  els.scrollArea.addEventListener('mouseleave', end);
+  window.addEventListener('blur', end);
+}
 
 /* Ctrl + 滚轮 / 触摸板捏合 -> 组件内缩放（阻止浏览器整页缩放） */
 function bindZoomWheel() {
@@ -494,6 +564,7 @@ function moveTag(cx, cy, p) {
 }
 
 function onPageClick(e) {
+  if (suppressClick) return; // 拖拽平移后的那一次 click 不算打点
   const hit = locate(e);
   if (!hit) return;
   const p = pointFrom(hit.rec, hit.cssX, hit.cssY);
