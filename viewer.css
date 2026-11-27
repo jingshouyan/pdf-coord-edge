@@ -98,23 +98,35 @@ select {
 main {
   flex: 1 1 auto;
   overflow: auto;
-  padding: 22px 0 60px;
+  padding: 22px 24px 60px;
   overscroll-behavior: contain; /* 缩放到边界时不把滚动/缩放手势传给浏览器 */
 }
-#viewport { display: flex; flex-direction: column; align-items: center; gap: 22px; width: 100%; }
+
+/*
+ * 居中方式必须用块级 auto 外边距，不能用 flex 的 align-items:center。
+ * 页面比视口宽时，flex 居分会把左半部分推到负坐标区，而 scrollLeft 最小是 0，
+ * 那段溢出区域永远滚不到（表现为"放大后左边被裁、拖不到最左"）。
+ * 块级 margin:auto 在空间不足时按 0 处理，元素贴左、只向右溢出，左右两端都能到达。
+ */
+#viewport { width: 100%; }
 
 /* 左键拖拽平移：页面常态为可抓取手型，真正开始拖动后关闭文字选择 */
-.page-host { cursor: grab; }
-main.panning-active, main.panning-active .page-host {
-  cursor: grabbing;
-  user-select: none;
-}
+main.panning-active, main.panning-active .page-host { user-select: none; }
 
 .page-host {
-  position: relative; background: #fff; box-shadow: 0 2px 14px rgba(0, 0, 0, .5);
-  /* 仅 layout 包含：缩放改尺寸时缩小重排范围，同时不裁切越界的页码标签 */
-  contain: layout;
+  position: relative;
+  display: block;
+  /* 宽度收缩到页面实际宽度：窄页面时由 auto 边距居中，
+     页面比视口宽时 auto 边距按 0 处理（贴左），溢出只发生在右侧，
+     因此最左与最右都能滚动/拖拽到达 */
+  width: max-content;
+  margin: 22px auto 0;
+  background: #fff;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, .5);
+  cursor: grab;
 }
+main.panning-active .page-host { cursor: grabbing; }
+.page-host { contain: layout; } /* 缩放改尺寸时缩小重排范围；不用 paint，否则会裁掉越界的页码标签 */
 /* 位图尚未出图时的占位，避免露出黑色底 */
 .page-host.pending .page-canvas { background: #fbfbfc; }
 .page-host.pending::after {

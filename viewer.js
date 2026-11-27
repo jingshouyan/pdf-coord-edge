@@ -197,6 +197,8 @@ function relayout() {
 
     rec.canvas.style.width = viewport.width + 'px';
     rec.canvas.style.height = viewport.height + 'px';
+    // 显式收缩容器宽度：使白底恰好等于页面，超宽时由 margin:auto 退化为贴左
+    rec.host.style.width = viewport.width + 'px';
     rec.ruler.style.width = viewport.width + 'px';
     rec.ruler.style.height = viewport.height + 'px';
 
@@ -465,7 +467,6 @@ function bindPanDrag() {
       left0: els.scrollArea.scrollLeft, top0: els.scrollArea.scrollTop,
       moved: false
     };
-    els.scrollArea.classList.add('panning');
     // 不在 mousedown 里 preventDefault：否则浏览器不会派发 click，打点会失效。
     // 拖动选中文字改由 .panning-active 的 user-select:none 抑制。
   });
@@ -478,22 +479,14 @@ function bindPanDrag() {
     if (!pan.moved) {
       pan.moved = true;
       els.scrollArea.classList.add('panning-active');            // 由 CSS 关闭文字选择
-      state.mouse = null;
-      setActive(null);
-      els.cursorTag.style.display = 'none';                      // 拖动时收起浮层，画面跟手
-      renderReadout();
     }
 
     els.scrollArea.scrollLeft = pan.left0 - dx;
     els.scrollArea.scrollTop = pan.top0 - dy;
 
-    // 位移已生效，按最新指针位置刷新读数（页面矩形随滚动变化，需重新命中）
-    const pt = pendingMove;
-    if (pt) {
-      if (moveRaf) { cancelAnimationFrame(moveRaf); moveRaf = 0; }
-      pendingMove = null;
-      applyMove(pt.x, pt.y, true);
-    }
+    // 用当前事件坐标刷新读数：onMouseMove 在拖动中已被守卫停掉，
+    // pendingMove 会停留在进入拖动前的旧坐标，不能复用。
+    applyMove(e.clientX, e.clientY, true);
   }, { passive: true });
 
   const end = (ev) => {
@@ -502,7 +495,7 @@ function bindPanDrag() {
     const wasMoved = pan.moved;
     const cx = ev && ev.clientX, cy = ev && ev.clientY;
     pan = null;
-    els.scrollArea.classList.remove('panning', 'panning-active');
+    els.scrollArea.classList.remove('panning-active');
     if (suppressClick) setTimeout(() => { suppressClick = false; }, 0);
     if (wasMoved && ev && ev.type === 'mouseup' && typeof cx === 'number' && typeof cy === 'number') {
       applyMove(cx, cy, true); // 松手即恢复该点读数
@@ -733,8 +726,9 @@ async function setZoom(s) {
 }
 
 /**
- * 以屏幕某个锚点为中心缩放：先同步重排并标定坐标，再把文档偏移校正回去，
- * 保证缩放前后鼠标指向的 PDF 位置不动；位图随后异步重画。
+ * 以屏幕某个锚点为中心缩放。
+ * 不能用"文档偏移等比放大"的公式：页面是 margin:auto 居中的，缩放后居中偏移本身也会变，
+ * 等比公式会让光标指向的位置漂移。正确做法是重排后量出该点新的屏幕位置，再反推滚动量。
  */
 async function zoomAt(factor, anchorX, anchorY) {
   const target = Math.max(0.2, Math.min(8, state.scale * factor));
@@ -742,10 +736,13 @@ async function zoomAt(factor, anchorX, anchorY) {
 
   const area = els.scrollArea;
   const rect = area.getBoundingClientRect();
-  const ax = (anchorX == null ? rect.left + rect.width / 2 : anchorX) - rect.left;
-  const ay = (anchorY == null ? rect.top + rect.height / 2 : anchorY) - rect.top;
-  const beforeDocX = area.scrollLeft + ax;
-  const beforeDocY = area.scrollTop + ay;
+  const ax = anchorX == null ? rect.left + rect.width / 2 : anchorX;
+  const ay = anchorY == null ? rect.top + rect.height / 2 : anchorY;
+
+  // 先把锚点解析成页内 pt 坐标（与缩放无关，可在重排后复用）
+  const before = hitAt(ax, ay);
+  const anchor = before ? { rec: before.rec, pt: pointFrom(before.rec, before.cssX, before.cssY) } : null;
+  const fallbackDocY = area.scrollTop + (ay - rect.top);
   const ratio = target / state.scale;
 
   state.scale = target;
@@ -753,10 +750,17 @@ async function zoomAt(factor, anchorX, anchorY) {
   relayout();
 
   void area.scrollHeight; // 强制同步 reflow，否则下面赋的滚动位置会被旧布局吞掉
-  area.scrollLeft = beforeDocX * ratio - ax;
-  area.scrollTop = beforeDocY * ratio - ay;
 
-  const hit = hitAt(anchorX, anchorY);
+  if (anchor && anchor.rec.viewport) {
+    const pos = pxFromPt(anchor.rec, anchor.pt.xPt, anchor.pt.yPt);
+    const r = anchor.rec.canvas.getBoundingClientRect();
+    area.scrollLeft += (r.left + pos.cssX) - ax;
+    area.scrollTop += (r.top + pos.cssY) - ay;
+  } else {
+    area.scrollTop = fallbackDocY * ratio - (ay - rect.top);
+  }
+
+  const hit = hitAt(ax, ay);
   if (hit) {
     const p = pointFrom(hit.rec, hit.cssX, hit.cssY);
     state.mouse = p;
