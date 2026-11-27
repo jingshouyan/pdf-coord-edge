@@ -2,7 +2,7 @@
 
 已为本扩展准备好的东西：
 
-- 上传包：`publish/pdf-coordinate-viewer-1.1.0.zip`（15 个条目，manifest 在根）
+- 上传包：`publish/pdf-coordinate-viewer-1.2.0.zip`（15 个条目，manifest 在根）
 - 商店素材：`store-assets/store-logo-300.png`、`promo-small-440x280.png`、`promo-large-1400x560.png`
 - 包内图标：`icons/icon16|32|48|128.png`
 - 重新打包：改完代码后运行 `make-release.ps1`（会重打版本号同名 zip）
@@ -29,7 +29,7 @@ Edge 计划**不收取注册费**（Chrome Web Store 是 5 美元，Edge 免费�
 
 1. 合作伙伴中心 → 主页 → **Edge** 卡片 → 概述页
 2. 点 **＋ 创建新扩展**，输入扩展 ID 名称（内部管理用，不对用户显示）
-3. 把 `publish/pdf-coordinate-viewer-1.1.0.zip` 拖进 **拖动到此处 (.zip)**
+3. 把 `publish/pdf-coordinate-viewer-1.2.0.zip` 拖进 **拖动到此处 (.zip)**
 4. 校验通过后，左侧选 **扩展概述** → **程序包** → 查看解析出的名称/版本/权限 → **继续**
 
 > 打包注意：必须在文件夹**内部**选中文件压缩，manifest.json 要位于 zip 根目录；只支持 .zip。
@@ -101,6 +101,7 @@ Edge 计划**不收取注册费**（Chrome Web Store 是 5 美元，Edge 免费�
 · 十字准线与页面刻度尺（每 10pt 一格，50pt 标注数值），可作视觉对齐参考
 · 支持视图旋转 90/180/270 度，横版图纸也能正常测量
 · 多页连续滚动浏览，滚动时自动识别当前页；方向键、PageUp/PageDown 翻页
+· Ctrl + 鼠标滚轮即可在页面内缩放（以光标为锚点，20%～800%），不会误触发浏览器整页缩放；触摸板捏合同样适用
 · 缩放、适应宽度、页码跳转
 
 隐私：不联网、不收集任何数据、不含广告与统计代码。pdf.js 完整打包在扩展内，不加载任何远程代码。文档内容与测量结果只存在于当前页面的内存里，关闭标签页即消失。
@@ -125,6 +126,7 @@ Features:
 · Crosshair guides and an in-page ruler (tick every 10 pt, labelled every 50 pt) for visual alignment
 · View rotation at 90/180/270 degrees for landscape drawings
 · Continuous scrolling across pages with automatic current-page detection; arrow keys and PageUp/PageDown to navigate
+· Ctrl + mouse wheel zooms inside the viewer (anchored at the cursor, 20%-800%) instead of triggering browser page zoom; pinch gestures work the same way
 · Zoom, fit-to-width and jump-to-page
 
 Privacy: no network access, no data collection, no ads or analytics. pdf.js is fully bundled — no remote code is loaded. Document contents and measurements live only in the page's memory and vanish when you close the tab.
@@ -143,6 +145,7 @@ Tip: to measure local PDFs directly, enable "Allow access to file URLs" on this 
 3. 把鼠标移到页面上：顶部状态栏与跟随鼠标的浮层应显示 X/Y，页面左下角红点处读数应为 0.00 / 0.00，页面正中约为页宽的一半。
 4. A4 页面应显示尺寸约 595.3 × 841.9 pt。切换单位为 mm，A4 应约为 210 × 297 mm。
 5. 在页面内单击两次，状态栏出现 ΔX / ΔY / 直线距离；按 Esc 清除。
+6. 按住 Ctrl 滚动鼠标滚轮：只有 PDF 页面缩放（工具栏百分比同步变化，范围 20%～800%），浏览器整页文字与工具栏不被放大；缩放时光标指向的位置保持不动。
 无账号、无登录、无后端服务，不联网，不收集任何数据。
 ```
 
