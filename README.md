@@ -44,4 +44,18 @@ lib/pdf.worker.min.js
 
 - Edge 内置 PDF 阅读器属于浏览器内核页面，扩展**无法**向其注入脚本，所以本扩展用 pdf.js 自行渲染页面来获得鼠标事件与页面边界 —— 这也是坐标能做到准确的前提。
 - 扫描版/图片型 PDF 没有文字层，只能测量坐标，不能选词复制。
-- 超大文件（几十 MB、数百页）首次渲染会稍慢，因为默认一次渲染全部页面。
+- 超大文件（几十 MB、数百页）首次打开只渲染视口附近的页面，滚动到某页时再补渲染，因此不会因页数多而阻塞。
+
+## 提交后自动推送
+
+仓库自带 `.githooks/post-commit`，启用后每次 `git commit` 会自动把当前分支和附注标签推到 GitHub：
+
+```
+git config core.hooksPath .githooks
+```
+
+该配置属于本地仓库设置，**不会随 clone 传播**，换机器后需重新执行上面这行。
+
+- 临时跳过一次自动推送：`GIT_SKIP_AUTOPUSH=1 git commit ...`
+- 彻底关闭：`git config --unset core.hooksPath`
+- 推送失败（离线、认证过期）只提示不阻断提交，补推执行 `git push origin HEAD` 即可。
