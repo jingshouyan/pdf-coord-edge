@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  body { width: 280px; margin: 0; padding: 12px; background: #1b1d21; color: #e6e8ec;
+         font: 13px/1.6 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; }
+  h1 { font-size: 14px; margin: 0 0 8px; }
+  .row { display: flex; align-items: center; justify-content: space-between; margin: 10px 0; }
+  .tip { color: #9aa2b1; font-size: 12px; margin-top: 10px; border-top: 1px solid #383d47; padding-top: 8px; }
+  button { height: 28px; padding: 0 12px; color: #e6e8ec; background: #2c3039;
+           border: 1px solid #383d47; border-radius: 5px; cursor: pointer; width: 100%; margin-top: 6px; }
+  button:hover { border-color: #37a46b; }
+  code { background: #2c3039; padding: 1px 4px; border-radius: 3px; }
+  a { color: #7ee2ab; }
+</style>
+</head>
+<body>
+  <h1>PDF 坐标查看器</h1>
+
+  <div class="row">
+    <span>自动接管 Edge 打开的 PDF</span>
+    <input type="checkbox" id="takeover">
+  </div>
+
+  <button id="open">打开空白查看器</button>
+  <button id="openCurrent">用当前标签页的 PDF 打开</button>
+
+  <p class="tip">
+    测量坐标系：<b>每页左下角为 (0,0)</b>，X 向右、Y 向上，单位 <code>pt</code>（1 pt = 1/72 英寸）。<br><br>
+    打开本地文件需一次性授权：扩展详情页 → 本扩展 → 详情 → 开启
+    <b>「允许访问文件」</b>。若本地 PDF 仍打不开，在查看器里点「选择文件」即可。
+  </p>
+
+  <script src="popup.js"></script>
+</body>
+</html>
