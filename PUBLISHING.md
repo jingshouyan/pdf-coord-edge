@@ -2,7 +2,7 @@
 
 已为本扩展准备好的东西：
 
-- 上传包：`publish/pdf-coordinate-viewer-1.2.2.zip`（15 个条目，manifest 在根）
+- 上传包：`publish/pdf-coordinate-viewer-1.3.0.zip`（15 个条目，manifest 在根）
 - 商店素材：`store-assets/store-logo-300.png`、`promo-small-440x280.png`、`promo-large-1400x560.png`
 - 包内图标：`icons/icon16|32|48|128.png`
 - 重新打包：改完代码后运行 `make-release.ps1`（会重打版本号同名 zip）
@@ -29,7 +29,7 @@ Edge 计划**不收取注册费**（Chrome Web Store 是 5 美元，Edge 免费�
 
 1. 合作伙伴中心 → 主页 → **Edge** 卡片 → 概述页
 2. 点 **＋ 创建新扩展**，输入扩展 ID 名称（内部管理用，不对用户显示）
-3. 把 `publish/pdf-coordinate-viewer-1.2.2.zip` 拖进 **拖动到此处 (.zip)**
+3. 把 `publish/pdf-coordinate-viewer-1.3.0.zip` 拖进 **拖动到此处 (.zip)**
 4. 校验通过后，左侧选 **扩展概述** → **程序包** → 查看解析出的名称/版本/权限 → **继续**
 
 > 打包注意：必须在文件夹**内部**选中文件压缩，manifest.json 要位于 zip 根目录；只支持 .zip。
@@ -106,7 +106,7 @@ Edge 计划**不收取注册费**（Chrome Web Store 是 5 美元，Edge 免费�
 
 隐私：不联网、不收集任何数据、不含广告与统计代码。pdf.js 完整打包在扩展内，不加载任何远程代码。文档内容与测量结果只存在于当前页面的内存里，关闭标签页即消失。
 
-提示：首次使用请在 edge://extensions/ 的本扩展「详情」里打开「允许访问文件 URL」，才能直接测量本地 PDF；未开启时也可在查看器里点「选择文件」手动打开。
+提示：直接双击本地 PDF 需要一次性开启 edge://extensions/ 里本扩展「详情」的「允许访问文件 URL」（商店安装的扩展该开关默认关闭）。不想改设置也可以：把 PDF 拖进查看器任意位置，或点「选择文件」——这两种方式不需要任何权限。
 ```
 
 **Description (English) — paste as-is**
@@ -131,7 +131,7 @@ Features:
 
 Privacy: no network access, no data collection, no ads or analytics. pdf.js is fully bundled — no remote code is loaded. Document contents and measurements live only in the page's memory and vanish when you close the tab.
 
-Tip: to measure local PDFs directly, enable "Allow access to file URLs" on this extension's Details page in edge://extensions/. Otherwise use the "Choose file" button inside the viewer.
+Tip: opening a local PDF by double-clicking it requires a one-time switch — enable "Allow access to file URLs" on this extension's Details page in edge://extensions/ (extensions installed from the store have it off by default). If you would rather not change any setting, just drag a PDF anywhere into the viewer or use the "Choose file" button — neither needs that permission.
 ```
 
 ## 步骤 7 · 提交认证
@@ -140,8 +140,8 @@ Tip: to measure local PDFs directly, enable "Allow access to file URLs" on this 
 
 ```
 测试步骤：
-1. 安装后，进入 edge://extensions/ → 本扩展「详情」→ 打开「允许访问文件 URL」（测本地 PDF 必需）。
-2. 打开任意 .pdf 文件，会自动跳转到查看器；若未跳转，点扩展图标 →「用当前标签页的 PDF 打开」。
+1. 安装后，进入 edge://extensions/ → 本扩展「详情」→ 打开「允许访问文件 URL」（仅"直接双击本地 PDF"这条路径需要；不开也能用拖拽或「选择文件」打开，见第 2 步）。
+2. 打开任意 .pdf 文件，会自动跳转到查看器；若未跳转，点扩展图标 →「用当前标签页的 PDF 打开」。若第 1 步未开启权限就打开本地 PDF，查看器会显示引导横幅，此时把 PDF 文件直接拖进页面即可打开。
 3. 把鼠标移到页面上：顶部状态栏与跟随鼠标的浮层应显示 X/Y，页面左下角红点处读数应为 0.00 / 0.00，页面正中约为页宽的一半。
 4. A4 页面应显示尺寸约 595.3 × 841.9 pt。切换单位为 mm，A4 应约为 210 × 297 mm。
 5. 在页面内单击两次，状态栏出现 ΔX / ΔY / 直线距离；按 Esc 清除。
@@ -158,12 +158,12 @@ Tip: to measure local PDFs directly, enable "Allow access to file URLs" on this 
 - **zip 不解析**：manifest 不在根目录、或用了 .rar/.7z。重新跑 `make-release.ps1` 即可。
 - **只识别到一种语言**：manifest 的 `name`/`description` 必须是 `__MSG_xxx__` 占位且 `_locales/<lang>/messages.json` 齐全（本包已满足）。
 - **要求补隐私政策**：`PRIVACY.md` 已写好，随便挂到一个可公开访问的 URL（GitHub Pages、个人站点都行）再填入。
-- **本地 PDF 打不开**：99% 是没开「允许访问文件 URL」，商店审核员也会踩这个坑，所以已写进认证说明第 1 步。
+- **本地 PDF 打不开**：商店安装的扩展「允许访问文件 URL」默认关闭，直接双击打不开属正常。两条解法——开启该开关后点「重试」，或把 PDF 拖进查看器（走 File API，无需该权限）。查看器此时会显示引导横幅，并可选择把该文件交回 Edge 内置阅读器打开。
 - **Partner Center 报 `correlationId: undefined`**：清缓存/换 Edge 无痕窗口/换浏览器再提交。
 
 ## 后续更新版本
 
-1. 改 `manifest.json` 里的 `version`（如 `1.2.3`）
+1. 改 `manifest.json` 里的 `version`（如 `1.3.1`）
 2. 跑 `make-release.ps1` → 生成新 zip
 3. 合作伙伴中心 → 选中该扩展 → **程序包** → 上传新 zip → 保存并发布
 

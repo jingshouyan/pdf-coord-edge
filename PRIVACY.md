@@ -30,7 +30,7 @@
 
 - 你打开 PDF 之外，扩展不会读取磁盘上任何其他文件
 - PDF 内容不会被上传，解析与测量全程在本机内存完成
-- 若不需要测本地文件，你可以在 `edge://extensions/` 里关掉「允许访问文件 URL」，此时仍可测量网页中的 PDF 或用「选择文件」按钮手动打开
+- 该权限**不是使用本扩展的前提**。不打开它，你仍然可以：把 PDF 拖进查看器、或点「选择文件」打开——这两种方式由浏览器 File API 处理，权限由你在文件选择框/拖放动作中当场授予，扩展不会因此获得访问其他文件的能力。开启该权限只是让「双击本地 PDF 自动接管」这一条路径可用。
 
 ### 4. 第三方代码
 
@@ -59,6 +59,7 @@
 - **No collection**: no names, emails, device identifiers, browsing history, or analytics. No tracking code, no advertising SDK, no crash reporting. The extension makes **zero network requests** of its own.
 - **Local only**: your preferences (origin corner, unit, decimals, zoom, rotation, crosshair/ruler toggles, takeover switch) live in the browser's local storage on your device. PDF content, cursor coordinates, and measurement markers exist only in the page's memory and disappear when the tab closes. We cannot access either — there is no backend.
 - **Why file/web access is requested**: solely to read the bytes of the one PDF you choose to open, so the bundled pdf.js can render it locally and compute point coordinates. It never reads any other file on disk, and never uploads document content.
+- **This permission is not required to use the extension.** With it off you can still drag a PDF anywhere into the viewer, or use the "Choose file" button — both go through the browser's File API, where you grant access to that single file at the moment you pick or drop it; the extension gains no ability to read other files. Turning the switch on only enables the extra path where double-clicking a local PDF is taken over automatically.
 - **Bundled code**: pdf.js (Apache-2.0, maintained by Mozilla) is fully included in the package. No remote code is loaded or executed.
 - **Children**: the extension is not directed at children and performs no data collection.
 - **Changes**: any future introduction of data collection would be disclosed here and on the store listing, with a version bump.
