@@ -23,13 +23,20 @@
     <input type="checkbox" id="takeover">
   </div>
 
+  <div class="row">
+    <span>读取本地文件（file://）权限</span>
+    <b id="fileAccess">检测中…</b>
+  </div>
+
+  <button id="openFilePage">打开扩展详情页去开启</button>
+
   <button id="open">打开空白查看器</button>
   <button id="openCurrent">用当前标签页的 PDF 打开</button>
 
   <p class="tip">
     测量坐标系：<b>每页左下角为 (0,0)</b>，X 向右、Y 向上，单位 <code>pt</code>（1 pt = 1/72 英寸）。<br><br>
-    打开本地文件需一次性授权：扩展详情页 → 本扩展 → 详情 → 开启
-    <b>「允许访问文件」</b>。若本地 PDF 仍打不开，在查看器里点「选择文件」即可。
+    打开本地 PDF 有两种方式：<b>把文件拖进查看器</b>，或点「选择文件」——这两种都<b>不需要</b>额外权限；
+    想让双击本地 PDF 自动接管，才需开启 <b>「允许访问文件 URL」</b>（商店安装的扩展默认关闭）。
   </p>
 
   <script src="popup.js"></script>

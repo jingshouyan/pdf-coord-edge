@@ -94,6 +94,47 @@ select {
   background: #3a2f18; color: #ffd68a; border-bottom: 1px solid #5a4a24;
 }
 
+/* 引导横幅：本地文件读不到时的替代操作 */
+.banner.with-actions { padding: 12px 14px; line-height: 1.65; }
+.bn-title { font-weight: 600; font-size: 13.5px; color: #ffe6b0; }
+.bn-sub { font-size: 12.5px; color: #e8cf9a; margin-top: 2px; }
+.bn-li { font-size: 12.5px; color: #f0d9a8; margin-top: 6px; padding-left: 12px; position: relative; }
+.bn-li::before { content: "·"; position: absolute; left: 2px; color: #ffd68a; }
+.bn-li b { color: #fff; font-weight: 600; }
+.banner code {
+  background: #2a220f; color: #ffe6b0; padding: 1px 5px; border-radius: 3px;
+  font-family: Consolas, "Courier New", monospace; font-size: 11.5px;
+}
+.bn-path { font-size: 12px; color: #d8c08a; margin-top: 8px; }
+.bn-path code.copyable { cursor: pointer; border: 1px dashed #6b5a2c; }
+.bn-path code.copyable:hover { background: #4a3c1c; border-style: solid; }
+.bn-acts { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.bn-acts .btn { height: 28px; }
+.bn-acts .btn.primary {
+  background: #24603f; border-color: #37a46b; color: #fff; font-weight: 600;
+}
+.bn-acts .btn.primary:hover { background: #2c7550; }
+
+/* 拖拽 PDF 进入时整页高亮 */
+body.dragover main::after {
+  content: "松开即可打开这个 PDF";
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  padding: 14px 26px; font-size: 15px; font-weight: 600; color: #fff;
+  background: rgba(36, 96, 63, .92); border: 2px dashed #7ee2ab; border-radius: 8px;
+  pointer-events: none; z-index: 30;
+}
+body.dragover main { outline: 3px dashed rgba(126, 226, 171, .55); outline-offset: -6px; }
+
+/* 轻量提示浮层（复制成功等），复用坐标浮层外观但不参与读数 */
+.toast {
+  position: fixed; left: 50%; bottom: 26px; z-index: 40; pointer-events: none;
+  transform: translate(-50%, 12px); opacity: 0; transition: opacity .2s, transform .2s;
+  padding: 7px 14px; font-size: 12.5px; color: #fff;
+  background: rgba(0, 0, 0, .86); border: 1px solid rgba(255, 255, 255, .2); border-radius: 5px;
+  white-space: nowrap;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
 /* ---------------- 页面区 ---------------- */
 main {
   flex: 1 1 auto;

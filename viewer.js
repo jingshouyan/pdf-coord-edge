@@ -29,6 +29,7 @@ const state = {
 const pages = new Map(); // n -> rec
 const els = {};
 let activeRec = null;
+let pendingFileUrl = null; // 本地 PDF 直读失败时记住地址，供"重试"使用
 
 /* ============================ 启动 ============================ */
 
@@ -50,7 +51,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setDocTitle(urlToName(file)); // 先按文件名占位，打开成功后再校正
     await loadUrl(file);
   } else {
-    hint('请点击「选择文件」打开本地 PDF；或直接访问 .pdf 链接，扩展会自动接管。');
+    hint('把 PDF 拖进本页面，或点「选择文件」打开；也可直接访问 .pdf 链接，扩展会自动接管。');
   }
 });
 
@@ -80,8 +81,107 @@ async function loadUrl(url) {
     const doc = await pdfjsLib.getDocument({ url, isEvalSupported: false }).promise;
     await mount(doc, urlToName(url));
   } catch (e) {
-    hint('无法直接读取该地址（' + safeMsg(e) + '）。请在扩展详情页开启「允许访问文件 URL」，或点「选择文件」手动打开。');
+    if (/^file:/i.test(url)) showLocalFileFallback(url, e);
+    else hint('无法读取该地址（' + safeMsg(e) + '）。网络 PDF 请确认站点允许跨域访问。');
   }
+}
+
+/**
+ * 走 File API 读取用户主动交出权限的文件，不需要"允许访问文件 URL"开关。
+ * 选择文件与拖拽都调这里。
+ */
+async function openLocalFile(file) {
+  if (!file) return;
+  if (!/\.pdf$/i.test(file.name || '') && file.type !== 'application/pdf') {
+    hint('请拖入或选择 PDF 文件（当前：' + file.name + '）');
+    return;
+  }
+  hint('正在解析：' + file.name);
+  try {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    await mount(await pdfjsLib.getDocument({ data: buf, isEvalSupported: false }).promise, file.name);
+  } catch (err) {
+    hint('解析失败：' + safeMsg(err));
+  }
+}
+
+/** 本地 PDF 读不到时的引导：并列两种常见原因，并给出免权限的打开方式 */
+function showLocalFileFallback(url, err) {
+  clearBanner();
+  const path = urlToWindowsPath(url);
+  els.banner.classList.add('with-actions');
+
+  const title = document.createElement('div');
+  title.className = 'bn-title';
+  title.textContent = '扩展无法直接读取这个本地 PDF';
+
+  const sub = document.createElement('div');
+  sub.className = 'bn-sub';
+  // 不猜权限状态：扩展页面里该查询接口不可信，直接把两种可能并列，由用户确认
+  sub.textContent = '常见原因有两种（' + safeMsg(err) + '）：';
+
+  const li1 = document.createElement('div');
+  li1.className = 'bn-li';
+  li1.innerHTML = '<b>原因一（最常见）</b>：「允许访问文件 URL」还没开启。从商店安装的扩展该开关<b>默认关闭</b>。';
+
+  const li2 = document.createElement('div');
+  li2.className = 'bn-li';
+  li2.innerHTML = '<b>原因二</b>：若确认已开启，则更可能是文件被移动、重命名、改名、正被其他程序占用，或路径含特殊字符。';
+
+  const wayA = document.createElement('div');
+  wayA.className = 'bn-li';
+  wayA.innerHTML = '<b>不想改设置（推荐，免权限）</b>：把 PDF 拖进本页面任意位置，或点下方「选择文件」。这两种方式不依赖上述权限。';
+
+  const wayB = document.createElement('div');
+  wayB.className = 'bn-li';
+  wayB.innerHTML = '<b>想让双击本地 PDF 自动接管</b>：打开 <code>edge://extensions/</code>'
+    + ' → 本扩展 → <b>详情</b> → 开启 <b>「允许访问文件 URL」</b> → 点下方「重试」。';
+
+  const pathLine = document.createElement('div');
+  pathLine.className = 'bn-path';
+  const pathLabel = document.createElement('span');
+  pathLabel.textContent = '待打开文件：';
+  const pathCode = document.createElement('code');
+  pathCode.textContent = path;
+  pathCode.className = 'copyable';
+  pathCode.dataset.copy = path;
+  pathCode.title = '点击复制路径，在文件选择框里按 Ctrl+L 粘贴即可定位';
+  pathLine.append(pathLabel, pathCode);
+
+  const acts = document.createElement('div');
+  acts.className = 'bn-acts';
+  const pickBtn = document.createElement('button');
+  pickBtn.className = 'btn primary';
+  pickBtn.textContent = '选择文件';
+  pickBtn.dataset.act = 'pick';
+  const retryBtn = document.createElement('button');
+  retryBtn.className = 'btn';
+  retryBtn.textContent = '已开启权限，重试';
+  retryBtn.dataset.act = 'retry';
+  const copyAddrBtn = document.createElement('button');
+  copyAddrBtn.className = 'btn';
+  copyAddrBtn.textContent = '复制扩展管理地址';
+  copyAddrBtn.dataset.act = 'copystep';
+  const nativeBtn = document.createElement('button');
+  nativeBtn.className = 'btn';
+  nativeBtn.textContent = '改用 Edge 内置阅读器打开';
+  nativeBtn.dataset.act = 'native';
+  nativeBtn.title = '把该文件交回浏览器原生 PDF 阅读器（无坐标测量功能）';
+  acts.append(pickBtn, retryBtn, nativeBtn, copyAddrBtn);
+
+  els.banner.append(title, sub, li1, li2, wayA, wayB, pathLine, acts);
+  els.banner.style.display = 'block';
+  pendingFileUrl = url;
+}
+
+/** 把 file:// URL 还原成 Windows 路径，方便用户在选择框里粘贴定位 */
+function urlToWindowsPath(url) {
+  try {
+    const u = new URL(url);
+    let p = decodeURIComponent(u.pathname);
+    if (/^\//.test(p) && /^\/[a-zA-Z]:/i.test(p)) p = p.slice(1);
+    return p.replace(/\//g, '\\');
+  } catch (e) { return url; }
 }
 
 async function mount(doc, name) {
@@ -671,16 +771,10 @@ function originLabel() {
 
 function bindUI() {
   els.openFile.addEventListener('click', () => els.fileInput.click());
-  els.fileInput.addEventListener('change', async (e) => {
+  els.fileInput.addEventListener('change', (e) => {
     const f = e.target.files && e.target.files[0];
-    if (!f) return;
-    hint('正在解析：' + f.name);
-    try {
-      const buf = new Uint8Array(await f.arrayBuffer());
-      await mount(await pdfjsLib.getDocument({ data: buf, isEvalSupported: false }).promise, f.name);
-    } catch (err) {
-      hint('解析失败：' + safeMsg(err));
-    }
+    openLocalFile(f);
+    e.target.value = ''; // 允许重复选择同一文件
   });
 
   els.prev.addEventListener('click', () => gotoPage(state.curPage - 1));
@@ -714,8 +808,103 @@ function bindUI() {
   });
   els.resetPin.addEventListener('click', () => { state.pins = []; for (const r of pages.values()) repaintPins(r); renderReadout(); });
 
+  bindDropAndBannerActions();
+
   // 窗口尺寸或 DPI 变化后位图需要重画
   window.addEventListener('resize', debounce(() => { setActive(null); scheduleRepaint(0); }, 200));
+}
+
+/** 拖拽打开 + 引导横幅按钮（用事件委托，横幅重建后无需重新绑定） */
+function bindDropAndBannerActions() {
+  // 横幅按钮
+  els.banner.addEventListener('click', async (e) => {
+    const act = e.target.dataset && e.target.dataset.act;
+    if (act === 'pick') els.fileInput.click();
+    else if (act === 'retry') {
+      const u = pendingFileUrl;      // clearBanner 会置空，必须先取副本
+      if (u) { clearBanner(); await loadUrl(u); }
+      else els.fileInput.click();
+    } else if (act === 'copystep') {
+      await copyText('edge://extensions/');
+    } else if (act === 'native') {
+      await useNativeReader();
+    } else if (e.target.dataset && e.target.dataset.copy) {
+      await copyText(e.target.dataset.copy); // 复制待打开文件路径，便于在选择框 Ctrl+L 粘贴
+    }
+  });
+
+  /**
+   * 放弃坐标测量，把这个本地 PDF 交回 Edge 内置阅读器。
+   * 后台会短时间跳过对该地址的接管，避免跳回后又被抢回来。
+   */
+  async function useNativeReader() {
+    const u = new URLSearchParams(location.search).get('file');
+    if (!u) return;
+    // 扩展页面发出的消息在后台侧 sender.tab 为 undefined，需自行带上 tabId
+    let tabId = null;
+    try {
+      const [t] = await chrome.tabs.query({ active: true, currentWindow: true });
+      tabId = t && typeof t.id === 'number' ? t.id : null;
+    } catch (err) { tabId = null; }
+    try {
+      const ok = await chrome.runtime.sendMessage({ type: 'use-native-reader', url: u, tabId });
+      if (!ok) await fallbackToNative(u, tabId);
+    } catch (err) {
+      await fallbackToNative(u, tabId);
+    }
+  }
+
+  /** 后台不可达时，本地写入绕过标记并自行导航回该文件 */
+  async function fallbackToNative(u, tabId) {
+    try {
+      await chrome.storage.session.set({ ['bypass:' + u]: Date.now() });
+      if (tabId != null) { await chrome.tabs.update(tabId, { url: u }); return; }
+    } catch (err) { /* 继续走手动提示 */ }
+    hint('无法自动跳转。请到地址栏粘贴本文件地址后回车，用 Edge 内置阅读器打开。');
+  }
+
+  // 拖拽进入：始终可用，随时拖入即可切换文档（走 File API，无需文件 URL 权限）
+  // 用 enter/leave 计数，避免在页面子元素之间移动时高亮反复闪烁
+  let dragDepth = 0;
+  document.addEventListener('dragenter', (e) => {
+    if (!e.dataTransfer || Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') < 0) return;
+    dragDepth++;
+    document.body.classList.add('dragover');
+  });
+  document.addEventListener('dragover', (e) => {
+    if (!e.dataTransfer || Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') < 0) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    document.body.classList.add('dragover');
+  });
+  document.addEventListener('dragleave', () => {
+    if (dragDepth > 0) dragDepth--;
+    if (dragDepth === 0) document.body.classList.remove('dragover');
+  });
+  document.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    dragDepth = 0;
+    document.body.classList.remove('dragover');
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f) return;
+    clearBanner();
+    await openLocalFile(f);
+  });
+}
+
+async function copyText(t) {
+  let el = document.getElementById('toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast';
+    el.className = 'toast';
+    document.body.append(el);
+  }
+  clearTimeout(el._t);
+  try { await navigator.clipboard.writeText(t); el.textContent = '已复制，可直接粘贴'; }
+  catch (e) { el.textContent = '复制失败，请手动选中复制'; }
+  el.classList.add('show');
+  el._t = setTimeout(() => el.classList.remove('show'), 2400);
 }
 
 async function setZoom(s) {
@@ -852,9 +1041,17 @@ function setDocTitle(name) {
   }
 }
 
+function clearBanner() {
+  els.banner.textContent = '';
+  els.banner.classList.remove('with-actions');
+  els.banner.style.display = 'none';
+  pendingFileUrl = null;
+}
+
 function hint(t) {
-  if (!t) { els.banner.style.display = 'none'; els.banner.textContent = ''; return; }
-  els.banner.style.display = 'block'; els.banner.textContent = t;
+  if (!t) { clearBanner(); return; }
+  els.banner.style.display = 'block';
+  els.banner.textContent = t;
 }
 function safeMsg(e) { return String((e && e.message) || e || '未知错误').slice(0, 160); }
 function shorten(u) { try { return decodeURIComponent(u).split(/[\\/]/).pop() || u; } catch (e) { return u; } }
